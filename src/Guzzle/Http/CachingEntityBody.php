@@ -62,18 +62,26 @@ class CachingEntityBody extends AbstractEntityBodyDecorator
             $byte = $offset;
         } elseif ($whence == SEEK_CUR) {
             $byte = $offset + $this->ftell();
+        } elseif ($whence == SEEK_END) {
+            $size = $this->remoteStream->getSize();
+            if ($size === null) {
+                $size = $this->cacheEntireStream();
+            }
+            // Because 0 is the first byte, we seek to size - 1.
+            $byte = $size - 1 - $offset;
         } else {
-            throw new RuntimeException(__CLASS__ . ' supports only SEEK_SET and SEEK_CUR seek operations');
+            throw new \InvalidArgumentException('Invalid whence');
         }
 
-        // You cannot skip ahead past where you've read from the remote stream
-        if ($byte > $this->body->getSize()) {
-            throw new RuntimeException(
-                "Cannot seek to byte {$byte} when the buffered stream only contains {$this->body->getSize()} bytes"
-            );
+        $diff = $byte - $this->body->getSize();
+        if ($diff > 0) {
+            // If the seek byte is greater the number of read bytes, then read
+            // the difference of bytes to cache the bytes and inherently seek.
+            $this->read($diff);
+        } else {
+            // We can just do a normal seek since we've already seen this byte.
+            $this->body->seek($byte);
         }
-
-        return $this->body->seek($byte);
     }
 
     public function rewind()
